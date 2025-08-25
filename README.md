@@ -35,4 +35,4 @@ This makes the technique more **stealthy, powerful, and closer to how the Window
 
 ## 📂 Project Structure
 
-![Project Structure](https://raw.githubusercontent.com/notshivumang011/Process-Hacker-Strings-Remover/refs/heads/main/Annotation%202025-08-24%20151225.png))
+![Project Structure](https://raw.githubusercontent.com/notshivumang011/Manual-Mapping-Dll-Injection-Technique/refs/heads/main/manual%20mpp.png))
