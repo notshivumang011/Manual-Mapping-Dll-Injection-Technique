@@ -4,21 +4,17 @@
 #include <TlHelp32.h>
 
 using namespace std;
-
-// Console color constants
 #define COLOR_DEFAULT 7
 #define COLOR_SUCCESS 10
 #define COLOR_ERROR 12
 #define COLOR_WARNING 14
 #define COLOR_INFO 11
 
-// Function to set console text color
 void SetConsoleColor(int color) {
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     SetConsoleTextAttribute(hConsole, color);
 }
 
-// Manual mapping structures and functions
 using f_LoadLibraryA = HINSTANCE(WINAPI*)(const char* lpLibFilename);
 using f_GetProcAddress = FARPROC(WINAPI*)(HMODULE hModule, LPCSTR lpProcName);
 using f_DLL_ENTRY_POINT = BOOL(WINAPI*)(void* hDll, DWORD dwReason, void* pReserved);
@@ -40,13 +36,11 @@ struct MANUAL_MAPPING_DATA {
     BOOL SEHSupport;
 };
 
-// Logging macros
 #define LOG_SUCCESS(text, ...) { SetConsoleColor(COLOR_SUCCESS); printf("[+] "); printf(text, __VA_ARGS__); SetConsoleColor(COLOR_DEFAULT); }
 #define LOG_ERROR(text, ...) { SetConsoleColor(COLOR_ERROR); printf("[-] "); printf(text, __VA_ARGS__); SetConsoleColor(COLOR_DEFAULT); }
 #define LOG_WARNING(text, ...) { SetConsoleColor(COLOR_WARNING); printf("[!] "); printf(text, __VA_ARGS__); SetConsoleColor(COLOR_DEFAULT); }
 #define LOG_INFO(text, ...) { SetConsoleColor(COLOR_INFO); printf("[*] "); printf(text, __VA_ARGS__); SetConsoleColor(COLOR_DEFAULT); }
 
-// Architecture detection
 #ifdef _WIN64
 #define CURRENT_ARCH IMAGE_FILE_MACHINE_AMD64
 #define RELOC_FLAG(RelInfo) ((RelInfo >> 0x0C) == IMAGE_REL_BASED_DIR64)
@@ -55,7 +49,6 @@ struct MANUAL_MAPPING_DATA {
 #define RELOC_FLAG(RelInfo) ((RelInfo >> 0x0C) == IMAGE_REL_BASED_HIGHLOW)
 #endif
 
-// Function prototypes
 bool ManualMapDll(HANDLE hProc, BYTE* pSrcData, SIZE_T FileSize);
 void __stdcall Shellcode(MANUAL_MAPPING_DATA* pData);
 DWORD GetProcessIdByName(const wstring& name);
@@ -79,7 +72,6 @@ void __stdcall Shellcode(MANUAL_MAPPING_DATA* pData) {
     auto _RtlAddFunctionTable = pData->pRtlAddFunctionTable;
 #endif
 
-    // Relocation handling
     BYTE* LocationDelta = pBase - pOpt->ImageBase;
     if (LocationDelta && pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size) {
         auto* pRelocData = reinterpret_cast<IMAGE_BASE_RELOCATION*>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
@@ -98,7 +90,6 @@ void __stdcall Shellcode(MANUAL_MAPPING_DATA* pData) {
         }
     }
 
-    // Import handling
     if (pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size) {
         auto* pImportDesc = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
         while (pImportDesc->Name) {
@@ -122,7 +113,6 @@ void __stdcall Shellcode(MANUAL_MAPPING_DATA* pData) {
         }
     }
 
-    // TLS handling
     if (pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size) {
         auto* pTLS = (IMAGE_TLS_DIRECTORY*)(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
         auto* pCallback = (PIMAGE_TLS_CALLBACK*)(pTLS->AddressOfCallBacks);
@@ -130,7 +120,6 @@ void __stdcall Shellcode(MANUAL_MAPPING_DATA* pData) {
             (*pCallback)(pBase, DLL_PROCESS_ATTACH, nullptr);
     }
 
-    // Exception handling (x64 only)
 #ifdef _WIN64
     if (pData->SEHSupport && pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION].Size) {
         _RtlAddFunctionTable(
@@ -140,7 +129,6 @@ void __stdcall Shellcode(MANUAL_MAPPING_DATA* pData) {
     }
 #endif
 
-    // Execute DllMain
     auto DllMain = (f_DLL_ENTRY_POINT)(pBase + pOpt->AddressOfEntryPoint);
     DllMain(pBase, pData->fdwReasonParam, pData->reservedParam);
 }
@@ -182,14 +170,12 @@ bool ManualMapDll(HANDLE hProc, BYTE* pSrcData, SIZE_T FileSize) {
     data.fdwReasonParam = DLL_PROCESS_ATTACH;
     data.SEHSupport = true;
 
-    // Write headers
     if (!WriteProcessMemory(hProc, targetBase, pSrcData, 0x1000, nullptr)) {
         LOG_ERROR("Failed to write headers (0x%X)\n", GetLastError());
         VirtualFreeEx(hProc, targetBase, 0, MEM_RELEASE);
         return false;
     }
 
-    // Write sections
     IMAGE_SECTION_HEADER* section = IMAGE_FIRST_SECTION(ntHeader);
     for (UINT i = 0; i < ntHeader->FileHeader.NumberOfSections; ++i, ++section) {
         if (section->SizeOfRawData == 0) continue;
@@ -203,7 +189,6 @@ bool ManualMapDll(HANDLE hProc, BYTE* pSrcData, SIZE_T FileSize) {
         }
     }
 
-    // Allocate and write shellcode
     void* remoteData = VirtualAllocEx(hProc, nullptr, sizeof(data), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     void* remoteShell = VirtualAllocEx(hProc, nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!remoteData || !remoteShell) {
@@ -221,7 +206,6 @@ bool ManualMapDll(HANDLE hProc, BYTE* pSrcData, SIZE_T FileSize) {
         return false;
     }
 
-    // Execute shellcode
     HANDLE hThread = CreateRemoteThread(hProc, nullptr, 0,
         (LPTHREAD_START_ROUTINE)remoteShell, remoteData, 0, nullptr);
     if (!hThread) {
@@ -232,7 +216,6 @@ bool ManualMapDll(HANDLE hProc, BYTE* pSrcData, SIZE_T FileSize) {
     WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
 
-    // Cleanup
     VirtualFreeEx(hProc, remoteData, 0, MEM_RELEASE);
     VirtualFreeEx(hProc, remoteShell, 0, MEM_RELEASE);
 
